@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link } from "@tanstack/react-router";
 import aiOrb from "@/assets/ai-orb.png";
+import { useDraggableFab } from "@/hooks/use-draggable-fab";
 
 type Msg = { role: "bot" | "user"; text: string; cta?: { label: string; to: string }[] };
 
@@ -39,6 +40,14 @@ export function Assistant() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([{ role: "bot", text: GREETING }]);
   const [input, setInput] = useState("");
+  const { style, dragHandlers, consumeDragClick, dragging } = useDraggableFab({
+    storageKey: "chozen-ai-position",
+    size: 60,
+    fallback: () => ({
+      x: window.innerWidth - 76,
+      y: window.innerHeight - (window.innerWidth < 768 ? 124 : 84),
+    }),
+  });
 
   function respond(text: string) {
     const found = INTENTS.find((i) => i.match.test(text));
@@ -62,9 +71,13 @@ export function Assistant() {
       <button
         aria-label="Open Chozen AI Assistant"
         title="Chozen AI Assistant"
-        onClick={() => setOpen((o) => !o)}
-        className="group fixed z-50 bottom-24 md:bottom-6 right-4 grid place-items-center rounded-full transition hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        style={{ width: 60, height: 60 }}
+        onClick={() => {
+          if (consumeDragClick()) return;
+          setOpen((o) => !o);
+        }}
+        className={`group fixed z-50 grid place-items-center rounded-full transition hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+        style={style}
+        {...dragHandlers}
       >
         <span
           aria-hidden="true"
