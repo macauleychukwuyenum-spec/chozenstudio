@@ -49,6 +49,11 @@ export function Assistant() {
     }),
   });
 
+  function toggleAssistant() {
+    if (consumeDragClick()) return;
+    setOpen((current) => !current);
+  }
+
   function respond(text: string) {
     const found = INTENTS.find((i) => i.match.test(text));
     if (found) return { text: found.reply, cta: found.cta };
@@ -69,12 +74,13 @@ export function Assistant() {
   return (
     <>
       <button
-        aria-label="Open Chozen AI Assistant"
-        title="Chozen AI Assistant"
-        onClick={() => {
-          if (consumeDragClick()) return;
-          setOpen((o) => !o);
-        }}
+        type="button"
+        aria-controls="chozen-ai-assistant"
+        aria-expanded={open}
+        aria-pressed={open}
+        aria-label={open ? "Close Chozen AI Assistant" : "Open Chozen AI Assistant"}
+        title={open ? "Close Chozen AI Assistant" : "Open Chozen AI Assistant"}
+        onClick={toggleAssistant}
         className={`group fixed z-50 grid place-items-center rounded-full transition hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
         style={style}
         {...dragHandlers}
@@ -100,7 +106,7 @@ export function Assistant() {
       </button>
 
       {open && (
-        <div className="fixed z-50 bottom-40 md:bottom-24 right-4 w-[92vw] max-w-sm glass-strong rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: "70vh" }}>
+        <div id="chozen-ai-assistant" className="fixed z-50 bottom-40 md:bottom-24 right-4 w-[92vw] max-w-sm glass-strong rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: "70vh" }}>
           <div className="px-4 py-3 border-b border-border gradient-primary text-primary-foreground flex items-center gap-3">
             <img src={aiOrb} alt="" width={32} height={32} className="w-8 h-8 drop-shadow" />
             <div>
