@@ -30,6 +30,8 @@ export function FileUpload({ bucket, folder, value, onChange, accept = "image/*"
   const [busy, setBusy] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const needsOwnerFolder = bucket === "avatars" || bucket === "blog-images";
+  const canUpload = !needsOwnerFolder || !!folder;
 
   async function refreshPreview(path: string | null) {
     if (!path || !preview) return setPreviewUrl(null);
@@ -41,6 +43,7 @@ export function FileUpload({ bucket, folder, value, onChange, accept = "image/*"
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
+    if (!canUpload) return toast.error("Please wait for your account to finish loading, then try again.");
     if (f.size > maxMB * 1024 * 1024) return toast.error(`Max ${maxMB}MB`);
     setBusy(true);
     try {
@@ -62,7 +65,7 @@ export function FileUpload({ bucket, folder, value, onChange, accept = "image/*"
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3 flex-wrap">
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+        <Button type="button" variant="outline" size="sm" disabled={busy || !canUpload} onClick={() => inputRef.current?.click()}>
           {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Upload className="w-3 h-3 mr-1" />}
           {label}
         </Button>
