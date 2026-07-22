@@ -19,15 +19,17 @@ export const initializeTierCheckout = createServerFn({ method: "POST" })
       .maybeSingle();
     if (tierErr || !tier) throw new Error("Tier not found");
 
-    // Block repurchase during active cycle
+    // A user can have one active tier cycle. Same-tier repurchase is blocked;
+    // other active tiers are treated as an upgrade/downgrade at finalization.
     const { data: active } = await supabase
       .from("tier_purchases")
-      .select("id")
+      .select("id, tier_id, tiers(name, slug, sort_order)")
       .eq("user_id", userId)
-      .eq("tier_id", tier.id)
       .eq("cycle_status", "active")
+      .order("purchased_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
-    if (active) throw new Error("You already have an active cycle for this tier.");
+    if (active?.tier_id === tier.id) throw new Error("You already have an active cycle for this tier.");
 
     const { data: profile } = await supabase.from("profiles").select("email,full_name").eq("id", userId).maybeSingle();
     if (!profile?.email) throw new Error("Missing email on profile");
@@ -35,7 +37,14 @@ export const initializeTierCheckout = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { paystackInitialize } = await import("./paystack.server");
 
-    const reference = `chozen_${tier.slug}_${userId.slice(0, 8)}_${Date.now()}`;
+    const activeSort = Number((active as any)?.tiers?.sort_order ?? 0);
+    const transition = active
+      ? Number(tier.sort_order) > activeSort
+        ? "upgrade"
+        : "downgrade"
+      : "new";
+
+    const reference = `chozen_${transition}_${tier.slug}_${userId.slice(0, 8)}_${Date.now()}`;
 
     const { error: insertErr } = await supabaseAdmin.from("payments").insert({
       user_id: userId,
@@ -43,7 +52,12 @@ export const initializeTierCheckout = createServerFn({ method: "POST" })
       amount_ngn: tier.price_ngn,
       paystack_reference: reference,
       status: "pending",
-      metadata: { tier_slug: tier.slug },
+      metadata: {
+        tier_slug: tier.slug,
+        transition,
+        previous_purchase_id: active?.id ?? null,
+        previous_tier_id: active?.tier_id ?? null,
+      },
     });
     if (insertErr) throw new Error(insertErr.message);
 
@@ -57,8 +71,12 @@ export const initializeTierCheckout = createServerFn({ method: "POST" })
         tier_id: tier.id,
         tier_slug: tier.slug,
         purpose: "tier",
+        transition,
+        previous_purchase_id: active?.id ?? null,
+        previous_tier_id: active?.tier_id ?? null,
         custom_fields: [
           { display_name: "Tier", variable_name: "tier", value: tier.name },
+          { display_name: "Action", variable_name: "action", value: transition },
         ],
       },
     });
