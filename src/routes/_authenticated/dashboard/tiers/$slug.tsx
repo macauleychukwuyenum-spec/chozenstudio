@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { formatNGN } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Check, ShieldCheck, Lock } from "lucide-react";
+import { ArrowLeft, Check, ShieldCheck, Lock, PenLine } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -106,9 +106,18 @@ function TierDetail() {
             <li className="flex gap-2"><Lock className="w-4 h-4 text-primary" /> One-time payment, forever access</li>
           </ul>
           {isCurrentActive ? (
-            <div className="mt-5 glass rounded-xl p-3 text-sm">
-              You already have an active cycle for this tier. Complete your referral cycle to repurchase.
-            </div>
+            <>
+              <div className="mt-5 glass rounded-xl p-3 text-sm">
+                You already have an active cycle for this tier. Complete your referral cycle to repurchase.
+              </div>
+              {tier.can_submit_blogs && (
+                <Button asChild className="w-full mt-3 h-11 rounded-xl gradient-primary text-primary-foreground shadow-glow">
+                  <Link to="/dashboard/blog">
+                    <PenLine className="w-4 h-4 mr-1" /> Add blog for approval
+                  </Link>
+                </Button>
+              )}
+            </>
           ) : (
             <>
               {activeCycle && (
