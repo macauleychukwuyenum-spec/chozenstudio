@@ -112,6 +112,13 @@ export async function finalizePayment(reference: string): Promise<{
     const { data: tier } = await supabaseAdmin.from("tiers").select("*").eq("id", payment.tier_id).maybeSingle();
     if (!tier) return { ok: false, status: "error", message: "Tier missing" };
 
+    const completedAt = new Date().toISOString();
+    await supabaseAdmin
+      .from("tier_purchases")
+      .update({ cycle_status: "completed", completed_at: completedAt })
+      .eq("user_id", payment.user_id)
+      .eq("cycle_status", "active");
+
     const { data: purchase, error: purchErr } = await supabaseAdmin
       .from("tier_purchases")
       .insert({
