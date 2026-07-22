@@ -265,5 +265,80 @@ export async function finalizePayment(reference: string): Promise<{
     }
   }
 
+  const productId = (payment as any).product_id as string | null | undefined;
+  if (productId) {
+    const { data: product } = await supabaseAdmin
+      .from("digital_products")
+      .select("*")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!product) return { ok: false, status: "error", message: "Product missing" };
+
+    let productPurchase = null;
+    const productPurchaseId = (payment as any).product_purchase_id as string | null | undefined;
+    if (productPurchaseId) {
+      const { data: existingById } = await supabaseAdmin
+        .from("product_purchases" as any)
+        .select("*")
+        .eq("id", productPurchaseId)
+        .maybeSingle();
+      productPurchase = existingById;
+    }
+
+    if (!productPurchase) {
+      const { data: existingByReference } = await supabaseAdmin
+        .from("product_purchases" as any)
+        .select("*")
+        .eq("payment_reference", reference)
+        .maybeSingle();
+      productPurchase = existingByReference;
+    }
+
+    if (!productPurchase) {
+      const { data: existingByProduct } = await supabaseAdmin
+        .from("product_purchases" as any)
+        .select("*")
+        .eq("user_id", payment.user_id)
+        .eq("product_id", productId)
+        .maybeSingle();
+      productPurchase = existingByProduct;
+    }
+
+    let createdProductPurchase = false;
+    if (!productPurchase) {
+      const { data: newProductPurchase, error: productPurchaseErr } = await supabaseAdmin
+        .from("product_purchases" as any)
+        .insert({
+          user_id: payment.user_id,
+          product_id: productId,
+          amount_paid_ngn: paidNgn || Number(product.price_ngn ?? 0),
+          payment_reference: reference,
+        })
+        .select()
+        .single();
+      if (productPurchaseErr) return { ok: false, status: "error", message: productPurchaseErr.message };
+      productPurchase = newProductPurchase;
+      createdProductPurchase = true;
+    } else if (!productPurchase.payment_reference) {
+      await supabaseAdmin
+        .from("product_purchases" as any)
+        .update({ payment_reference: reference })
+        .eq("id", productPurchase.id);
+    }
+
+    await supabaseAdmin
+      .from("payments" as any)
+      .update({ product_purchase_id: productPurchase.id })
+      .eq("id", payment.id);
+
+    if (createdProductPurchase) {
+      await supabaseAdmin.from("notifications").insert({
+        user_id: payment.user_id,
+        title: `${product.title} unlocked`,
+        body: "Your digital product is ready to view and download.",
+      });
+    }
+  }
+
   return { ok: true, status: "success", message: "Payment finalized" };
 }
