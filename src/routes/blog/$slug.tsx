@@ -2,7 +2,7 @@ import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PublicLayout } from "@/components/site/PublicLayout";
-import { SignedImage } from "@/components/site/SignedImage";
+import { ZoomableSignedImage } from "@/components/site/ZoomableSignedImage";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -43,7 +43,15 @@ function BlogDetail() {
         <Link to="/blog" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-6">
           <ArrowLeft className="w-4 h-4" /> All articles
         </Link>
-        {data.cover_url && <SignedImage bucket="blog-images" path={data.cover_url} alt={data.title} className="w-full aspect-[16/9] object-cover rounded-2xl mb-6" />}
+        {data.cover_url && (
+          <ZoomableSignedImage
+            bucket="blog-images"
+            path={data.cover_url}
+            alt={data.title}
+            wrapperClassName="w-full rounded-2xl mb-6"
+            className="w-full aspect-[16/9] object-cover rounded-2xl"
+          />
+        )}
         <h1 className="text-3xl md:text-4xl font-display font-bold">{data.title}</h1>
         <div className="text-xs text-muted-foreground mt-2">{data.published_at ? new Date(data.published_at).toLocaleDateString() : ""}</div>
         <RichBlogContent content={data.content} />
@@ -61,11 +69,12 @@ function RichBlogContent({ content }: { content: string }) {
         const image = block.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
         if (image) {
           return (
-            <SignedImage
+            <ZoomableSignedImage
               key={`${block}-${index}`}
               bucket="blog-images"
               path={image[2]}
               alt={image[1] || "Blog image"}
+              wrapperClassName="w-full rounded-2xl"
               className="w-full rounded-2xl border border-border object-cover"
             />
           );
