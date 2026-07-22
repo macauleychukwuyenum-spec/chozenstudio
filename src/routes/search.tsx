@@ -23,8 +23,8 @@ function SearchPage() {
     queryFn: async () => {
       const like = `%${term}%`;
       const [courses, products, services, blogs] = await Promise.all([
-        supabase.from("courses").select("id,title,description").ilike("title", like).limit(10),
-        supabase.from("digital_products").select("id,title,description").ilike("title", like).limit(10),
+        supabase.from("courses").select("id,title,slug,description").eq("published", true).or(`title.ilike.${like},description.ilike.${like}`).limit(10),
+        supabase.from("digital_products").select("id,title,slug,description").eq("published", true).or(`title.ilike.${like},description.ilike.${like}`).limit(10),
         supabase.from("services").select("id,title,description").ilike("title", like).limit(10),
         supabase.from("blog_posts").select("id,title,slug,excerpt").eq("status", "published").ilike("title", like).limit(10),
       ]);
@@ -54,8 +54,8 @@ function SearchPage() {
         )}
         {term.length >= 2 && data && (
           <div className="mt-10 space-y-8">
-            <Group title="Courses" icon={GraduationCap} to="/courses" items={data.courses.map((c) => ({ id: c.id, title: c.title, sub: c.description }))} />
-            <Group title="Digital Products" icon={Package} to="/products" items={data.products.map((c) => ({ id: c.id, title: c.title, sub: c.description }))} />
+            <Group title="Courses" icon={GraduationCap} items={data.courses.map((c: any) => ({ id: c.id, title: c.title, sub: c.description, href: `/courses/${c.slug}` }))} />
+            <Group title="Digital Products" icon={Package} items={data.products.map((c: any) => ({ id: c.id, title: c.title, sub: c.description, href: `/products/${c.slug}` }))} />
             <Group title="Services" icon={Wrench} to="/services" items={data.services.map((c) => ({ id: c.id, title: c.title, sub: c.description }))} />
             <Group title="Blog" icon={BookOpen} items={data.blogs.map((c: any) => ({ id: c.id, title: c.title, sub: c.excerpt, href: `/blog/${c.slug}` }))} />
           </div>
