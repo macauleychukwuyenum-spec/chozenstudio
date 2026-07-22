@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Lock } from "lucide-react";
+import { ImagePlus, Link2, Lock } from "lucide-react";
 import { FileUpload } from "@/components/site/FileUpload";
 
 export const Route = createFileRoute("/_authenticated/dashboard/blog/")({
@@ -22,6 +22,9 @@ function BlogAuthorHome() {
   const [title, setTitle] = useState("");
   const [excerpt, setExcerpt] = useState("");
   const [cover, setCover] = useState<string | null>(null);
+  const [inlineImage, setInlineImage] = useState<string | null>(null);
+  const [linkLabel, setLinkLabel] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [content, setContent] = useState("");
 
   const { data: canPublish } = useQuery({
@@ -49,16 +52,43 @@ function BlogAuthorHome() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!user) return;
+    if (title.trim().length < 5) return toast.error("Please add a clear title.");
+    if (content.trim().length < 80) return toast.error("Please add at least 80 characters of article content.");
     setBusy(true);
     const slug = title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").slice(0, 60) + "-" + Date.now().toString(36);
     const { error } = await supabase.from("blog_posts").insert({
-      author_id: user.id, title, slug, excerpt, cover_url: cover, content, status: "pending",
+      author_id: user.id,
+      title: title.trim(),
+      slug,
+      excerpt: excerpt.trim(),
+      cover_url: cover,
+      content: content.trim(),
+      status: "pending",
     });
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Submitted for review");
-    setTitle(""); setExcerpt(""); setCover(null); setContent("");
+    setTitle(""); setExcerpt(""); setCover(null); setInlineImage(null); setLinkLabel(""); setLinkUrl(""); setContent("");
     nav({ to: "/dashboard/blog" });
+  }
+
+  function appendToContent(snippet: string) {
+    setContent((current) => `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${snippet}`);
+  }
+
+  function insertLink() {
+    const label = linkLabel.trim();
+    const rawUrl = linkUrl.trim();
+    if (!label || !rawUrl) return toast.error("Add both link text and URL.");
+    const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    appendToContent(`[${label}](${url})`);
+    setLinkLabel("");
+    setLinkUrl("");
+  }
+
+  function handleInlineImage(path: string | null) {
+    setInlineImage(path);
+    if (path) appendToContent(`![Blog image](${path})`);
   }
 
   if (canPublish === false) {
@@ -81,10 +111,29 @@ function BlogAuthorHome() {
         <p className="text-sm text-muted-foreground">Your post goes to admin review before it's published.</p>
       </div>
       <form onSubmit={submit} className="glass-strong rounded-2xl p-6 space-y-3">
-        <Field label="Title"><Input required value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-        <Field label="Excerpt"><Input value={excerpt} onChange={(e) => setExcerpt(e.target.value)} /></Field>
-        <Field label="Cover image"><FileUpload bucket="blog-images" folder={user?.id} value={cover} onChange={setCover} accept="image/*" maxMB={5} label="Upload cover" /></Field>
-        <Field label="Content"><Textarea rows={10} required value={content} onChange={(e) => setContent(e.target.value)} /></Field>
+        <Field label="Title"><Input required maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+        <Field label="Excerpt"><Input maxLength={180} value={excerpt} onChange={(e) => setExcerpt(e.target.value)} /></Field>
+        <Field label="Cover image">
+          <FileUpload bucket="blog-images" folder={user?.id} value={cover} onChange={setCover} accept="image/jpeg,image/png,image/webp" maxMB={2} label="Upload cover" />
+        </Field>
+        <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end">
+          <Field label="Inline image">
+            <FileUpload bucket="blog-images" folder={user?.id} value={inlineImage} onChange={handleInlineImage} accept="image/jpeg,image/png,image/webp" maxMB={1} label="Insert small image" preview={false} />
+          </Field>
+          <div className="hidden md:flex h-9 items-center text-xs text-muted-foreground">
+            <ImagePlus className="w-4 h-4 mr-1" /> Adds image to content
+          </div>
+        </div>
+        <div className="grid md:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+          <Field label="Hyperlink text"><Input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="Read more" /></Field>
+          <Field label="Hyperlink URL"><Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://example.com" /></Field>
+          <Button type="button" variant="outline" className="rounded-xl" onClick={insertLink}>
+            <Link2 className="w-4 h-4 mr-1" /> Insert link
+          </Button>
+        </div>
+        <Field label="Content">
+          <Textarea rows={12} required value={content} onChange={(e) => setContent(e.target.value)} placeholder="Write the article. Inserted links and images will appear here for admin review." />
+        </Field>
         <Button disabled={busy} className="gradient-primary text-primary-foreground shadow-glow">
           {busy ? "Submitting…" : "Submit for review"}
         </Button>
