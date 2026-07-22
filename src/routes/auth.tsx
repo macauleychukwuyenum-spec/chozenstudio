@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate, useSearch, redirect } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { ArrowLeft, Mail } from "lucide-react";
 import { SITE_ORIGIN } from "@/lib/referral";
+import { useServerFn } from "@tanstack/react-start";
+import { applyReferralCodeFn } from "@/lib/referral.functions";
 
 const search = z.object({
   mode: z.enum(["signin", "signup", "reset"]).optional(),
@@ -33,15 +35,43 @@ function AuthPage() {
   const nav = useNavigate();
   const { mode = "signin", ref, next } = useSearch({ from: "/auth" });
   const { user } = useAuth();
+  const applyReferralCode = useServerFn(applyReferralCodeFn);
+  const applyingRef = useRef(false);
+  const [storedRef, setStoredRef] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
   const [agreeReferral, setAgreeReferral] = useState(false);
 
+  const activeRef = (ref || storedRef || "").trim().toUpperCase();
+
   useEffect(() => {
-    if (user) nav({ to: (next as any) || "/dashboard", replace: true });
-  }, [user, nav, next]);
+    const incoming = ref?.trim().toUpperCase();
+    if (incoming) {
+      window.localStorage.setItem("chozen_referral_code", incoming);
+      setStoredRef(incoming);
+      return;
+    }
+    setStoredRef(window.localStorage.getItem("chozen_referral_code"));
+  }, [ref]);
+
+  useEffect(() => {
+    if (!user || applyingRef.current) return;
+    applyingRef.current = true;
+    (async () => {
+      try {
+        if (activeRef) {
+          await applyReferralCode({ data: { code: activeRef } });
+          window.localStorage.removeItem("chozen_referral_code");
+        }
+      } catch (err) {
+        console.warn("Could not apply referral code", err);
+      } finally {
+        nav({ to: (next as any) || "/dashboard", replace: true });
+      }
+    })();
+  }, [activeRef, applyReferralCode, user, nav, next]);
 
   async function handleGoogle() {
     if (mode === "signup" && (!agreeTerms || !agreePrivacy || !agreeReferral)) {
@@ -49,10 +79,15 @@ function AuthPage() {
       return;
     }
     setLoading(true);
+    if (activeRef) window.localStorage.setItem("chozen_referral_code", activeRef);
+    const params = new URLSearchParams();
+    params.set("mode", mode);
+    if (activeRef) params.set("ref", activeRef);
+    if (next) params.set("next", next);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+        redirectTo: `${window.location.origin}/auth?${params.toString()}`,
         queryParams: {
           access_type: "offline",
           prompt: "consent",
@@ -87,7 +122,7 @@ function AuthPage() {
             data: {
               full_name,
               phone,
-              referral_code: ref ? ref.toUpperCase() : undefined,
+              referral_code: activeRef || undefined,
               agreed_terms_at: now,
               agreed_privacy_at: now,
               agreed_referral_policy_at: now,
@@ -190,9 +225,9 @@ function AuthPage() {
                     <Input id="password" name="password" type="password" required minLength={8} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
                   </div>
                 )}
-                {mode === "signup" && ref && (
+                {mode === "signup" && activeRef && (
                   <div className="text-xs text-muted-foreground">
-                    Referral code applied: <b className="text-foreground">{ref.toUpperCase()}</b>
+                    Referral code applied: <b className="text-foreground">{activeRef}</b>
                   </div>
                 )}
                 {mode === "signup" && (
