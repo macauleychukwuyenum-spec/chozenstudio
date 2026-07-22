@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PublicLayout } from "@/components/site/PublicLayout";
@@ -39,7 +39,7 @@ function ProductsList() {
         {data?.length ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {data.map((p: any) => (
-              <div key={p.id} className="glass rounded-2xl overflow-hidden">
+              <Link key={p.id} to="/products/$slug" params={{ slug: p.slug }} className="glass rounded-2xl overflow-hidden hover:shadow-glow transition">
                 <SignedImage bucket="product-files" path={p.cover_url} alt={p.title}
                   className="w-full aspect-[16/10] object-cover"
                   fallback={<div className="w-full aspect-[16/10] gradient-primary" />} />
@@ -51,7 +51,7 @@ function ProductsList() {
                     <span className="font-semibold">{p.price_ngn ? formatNGN(p.price_ngn) : "Included"}</span>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         ) : (
