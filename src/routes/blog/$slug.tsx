@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PublicLayout } from "@/components/site/PublicLayout";
 import { SignedImage } from "@/components/site/SignedImage";
 import { ArrowLeft } from "lucide-react";
+import type { ReactNode } from "react";
 
 export const Route = createFileRoute("/blog/$slug")({
   head: ({ params }) => ({
@@ -45,10 +46,63 @@ function BlogDetail() {
         {data.cover_url && <SignedImage bucket="blog-images" path={data.cover_url} alt={data.title} className="w-full aspect-[16/9] object-cover rounded-2xl mb-6" />}
         <h1 className="text-3xl md:text-4xl font-display font-bold">{data.title}</h1>
         <div className="text-xs text-muted-foreground mt-2">{data.published_at ? new Date(data.published_at).toLocaleDateString() : ""}</div>
-        <div className="prose prose-invert max-w-none mt-6 whitespace-pre-wrap text-foreground/90 leading-relaxed">
-          {data.content}
-        </div>
+        <RichBlogContent content={data.content} />
       </article>
     </PublicLayout>
   );
+}
+
+function RichBlogContent({ content }: { content: string }) {
+  const blocks = content.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+
+  return (
+    <div className="mt-6 space-y-5 text-foreground/90 leading-relaxed">
+      {blocks.map((block, index) => {
+        const image = block.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+        if (image) {
+          return (
+            <SignedImage
+              key={`${block}-${index}`}
+              bucket="blog-images"
+              path={image[2]}
+              alt={image[1] || "Blog image"}
+              className="w-full rounded-2xl border border-border object-cover"
+            />
+          );
+        }
+
+        return (
+          <p key={`${block}-${index}`} className="whitespace-pre-wrap">
+            {renderLinks(block)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderLinks(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = linkPattern.exec(text))) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    parts.push(
+      <a
+        key={`${match[1]}-${match.index}`}
+        href={match[2]}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary underline underline-offset-4 hover:text-primary-glow"
+      >
+        {match[1]}
+      </a>,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
 }
