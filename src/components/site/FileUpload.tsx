@@ -76,7 +76,7 @@ export function FileUpload({ bucket, folder, value, onChange, accept = "image/*"
         )}
         {value && <span className="text-xs text-muted-foreground truncate max-w-[240px]">{value}</span>}
       </div>
-      {preview && previewUrl && accept.includes("image") && (
+      {preview && previewUrl && accept?.includes("image") && (
         <img src={previewUrl} alt="Preview" className="rounded-lg max-h-40 border border-border" />
       )}
       <input ref={inputRef} type="file" accept={accept} onChange={onFile} className="hidden" />
