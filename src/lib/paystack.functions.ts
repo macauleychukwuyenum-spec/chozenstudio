@@ -84,6 +84,91 @@ export const initializeTierCheckout = createServerFn({ method: "POST" })
     return { authorization_url: init.authorization_url, reference: init.reference };
   });
 
+export const initializeProductCheckout = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z.object({ productId: z.string().uuid() }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    const { data: product, error: productErr } = await supabase
+      .from("digital_products")
+      .select("*")
+      .eq("id", data.productId)
+      .eq("published", true)
+      .maybeSingle();
+    if (productErr || !product) throw new Error("Product not found");
+
+    const { data: owned } = await supabase
+      .from("product_purchases" as any)
+      .select("id")
+      .eq("user_id", userId)
+      .eq("product_id", product.id)
+      .maybeSingle();
+    if (owned) throw new Error("You already own this product.");
+
+    const [{ data: activeCycles }, { data: allowedTiers }] = await Promise.all([
+      supabase
+        .from("tier_purchases")
+        .select("tier_id, tiers(digital_access_level)")
+        .eq("user_id", userId)
+        .eq("cycle_status", "active"),
+      supabase
+        .from("digital_product_tiers" as any)
+        .select("tier_id")
+        .eq("product_id", product.id),
+    ]);
+
+    const cycles = (activeCycles as any[]) ?? [];
+    const selectedTierIds = new Set(((allowedTiers as any[]) ?? []).map((row) => row.tier_id));
+    const hasSelectedTier = cycles.some((cycle) => selectedTierIds.has(cycle.tier_id));
+    const fallbackTierAccess =
+      selectedTierIds.size === 0
+      && Math.max(0, ...cycles.map((cycle) => Number(cycle.tiers?.digital_access_level ?? 0))) >= Number(product.required_access_level);
+    if (hasSelectedTier || fallbackTierAccess) throw new Error("This product is already unlocked by your active tier.");
+    if (Number(product.price_ngn) <= 0) throw new Error("This product does not require payment.");
+
+    const { data: profile } = await supabase.from("profiles").select("email,full_name").eq("id", userId).maybeSingle();
+    if (!profile?.email) throw new Error("Missing email on profile");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { paystackInitialize } = await import("./paystack.server");
+
+    const reference = `chozen_product_${product.slug}_${userId.slice(0, 8)}_${Date.now()}`;
+
+    const { error: insertErr } = await supabaseAdmin.from("payments" as any).insert({
+      user_id: userId,
+      product_id: product.id,
+      amount_ngn: product.price_ngn,
+      paystack_reference: reference,
+      status: "pending",
+      metadata: {
+        product_slug: product.slug,
+        purpose: "product",
+      },
+    });
+    if (insertErr) throw new Error(insertErr.message);
+
+    const init = await paystackInitialize({
+      email: profile.email,
+      amountNgn: Number(product.price_ngn),
+      reference,
+      callbackUrl: `${SITE_ORIGIN}/payment/callback`,
+      metadata: {
+        user_id: userId,
+        product_id: product.id,
+        product_slug: product.slug,
+        purpose: "product",
+        custom_fields: [
+          { display_name: "Product", variable_name: "product", value: product.title },
+        ],
+      },
+    });
+
+    return { authorization_url: init.authorization_url, reference: init.reference };
+  });
+
 export const verifyPaymentFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => z.object({ reference: z.string().min(3) }).parse(data))
   .handler(async ({ data }) => {
