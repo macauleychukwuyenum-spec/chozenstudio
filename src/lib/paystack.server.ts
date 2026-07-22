@@ -140,7 +140,7 @@ export async function finalizePayment(reference: string): Promise<{
       body: `Your ${tier.name} tier is now active. Enjoy your benefits.`,
     });
 
-    // --- Referral crediting: only direct referrer, only first tier purchase by this user ---
+    // --- Referral crediting: only direct referrer, only first rewarded tier purchase by this user ---
     const { data: buyer } = await supabaseAdmin
       .from("profiles")
       .select("referred_by, full_name, email")
@@ -148,16 +148,16 @@ export async function finalizePayment(reference: string): Promise<{
       .maybeSingle();
 
     if (buyer?.referred_by) {
-      // Ensure not already rewarded for this referred user
-      const { data: existingReward } = await supabaseAdmin
+      const { data: existingReferral } = await supabaseAdmin
         .from("referrals")
-        .select("id")
+        .select("id, status")
         .eq("referrer_id", buyer.referred_by)
         .eq("referred_user_id", payment.user_id)
-        .eq("status", "rewarded")
+        .order("created_at", { ascending: true })
+        .limit(1)
         .maybeSingle();
 
-      if (!existingReward) {
+      if (existingReferral?.status !== "rewarded") {
         // Check referrer has an active cycle and cap
         const { data: referrerActive } = await supabaseAdmin
           .from("tier_purchases")
@@ -196,15 +196,23 @@ export async function finalizePayment(reference: string): Promise<{
             reference: reference,
           });
 
-          await supabaseAdmin.from("referrals").insert({
-            referrer_id: buyer.referred_by,
-            referred_user_id: payment.user_id,
+          const rewardedPatch = {
             tier_purchase_id: purchase.id,
             cycle_purchase_id: referrerActive.id,
             reward_amount_ngn: reward,
             status: "rewarded",
             rewarded_at: new Date().toISOString(),
-          });
+          };
+
+          if (existingReferral) {
+            await supabaseAdmin.from("referrals").update(rewardedPatch).eq("id", existingReferral.id);
+          } else {
+            await supabaseAdmin.from("referrals").insert({
+              referrer_id: buyer.referred_by,
+              referred_user_id: payment.user_id,
+              ...rewardedPatch,
+            });
+          }
 
           await supabaseAdmin
             .from("tier_purchases")
@@ -218,13 +226,21 @@ export async function finalizePayment(reference: string): Promise<{
           });
         } else {
           // Track as pending even if not eligible (for visibility)
-          await supabaseAdmin.from("referrals").insert({
-            referrer_id: buyer.referred_by,
-            referred_user_id: payment.user_id,
+          const pendingPatch = {
             tier_purchase_id: purchase.id,
             reward_amount_ngn: reward,
             status: "pending",
-          });
+          };
+
+          if (existingReferral) {
+            await supabaseAdmin.from("referrals").update(pendingPatch).eq("id", existingReferral.id);
+          } else {
+            await supabaseAdmin.from("referrals").insert({
+              referrer_id: buyer.referred_by,
+              referred_user_id: payment.user_id,
+              ...pendingPatch,
+            });
+          }
         }
       }
     }
