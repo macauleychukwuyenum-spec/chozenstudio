@@ -29,16 +29,17 @@ function TierDetail() {
     },
   });
 
-  const { data: existing } = useQuery({
-    queryKey: ["tier-active", slug, user?.id],
+  const { data: activeCycle } = useQuery({
+    queryKey: ["active-tier-cycle", user?.id],
     enabled: !!user?.id && !!tier?.id,
     queryFn: async () => {
       const { data } = await supabase
         .from("tier_purchases")
-        .select("*")
+        .select("*, tiers(name, slug, sort_order)")
         .eq("user_id", user!.id)
-        .eq("tier_id", tier!.id)
         .eq("cycle_status", "active")
+        .order("purchased_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
       return data;
     },
@@ -56,10 +57,18 @@ function TierDetail() {
     }
   }
 
-  if (isLoading) return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
+  if (isLoading) return <div className="p-10 text-sm text-muted-foreground">Loading...</div>;
   if (!tier) return <div className="p-10">Tier not found.</div>;
 
   const benefits = Array.isArray(tier.benefits) ? (tier.benefits as string[]) : [];
+  const isCurrentActive = activeCycle?.tier_id === tier.id;
+  const activeSort = Number((activeCycle as any)?.tiers?.sort_order ?? 0);
+  const isUpgrade = !!activeCycle && Number(tier.sort_order) > activeSort;
+  const checkoutLabel = activeCycle
+    ? isUpgrade
+      ? `Upgrade to ${tier.name}`
+      : `Downgrade to ${tier.name}`
+    : "Pay with Paystack";
 
   return (
     <div className="mx-auto max-w-4xl px-4 md:px-8 py-6 md:py-10 space-y-6">
@@ -96,18 +105,25 @@ function TierDetail() {
             <li className="flex gap-2"><ShieldCheck className="w-4 h-4 text-primary" /> Secure Paystack checkout</li>
             <li className="flex gap-2"><Lock className="w-4 h-4 text-primary" /> One-time payment, forever access</li>
           </ul>
-          {existing ? (
+          {isCurrentActive ? (
             <div className="mt-5 glass rounded-xl p-3 text-sm">
               You already have an active cycle for this tier. Complete your referral cycle to repurchase.
             </div>
           ) : (
-            <Button
-              onClick={handleBuy}
-              disabled={buying}
-              className="w-full mt-5 h-11 rounded-xl gradient-primary text-primary-foreground shadow-glow"
-            >
-              {buying ? "Starting checkout…" : "Pay with Paystack"}
-            </Button>
+            <>
+              {activeCycle && (
+                <div className="mt-5 glass rounded-xl p-3 text-sm text-muted-foreground">
+                  Your current {(activeCycle as any).tiers?.name ?? "tier"} cycle will close, and this {tier.name} cycle starts from 0 referrals. Wallet balance and referral history stay unchanged.
+                </div>
+              )}
+              <Button
+                onClick={handleBuy}
+                disabled={buying}
+                className="w-full mt-5 h-11 rounded-xl gradient-primary text-primary-foreground shadow-glow"
+              >
+                {buying ? "Starting checkout..." : checkoutLabel}
+              </Button>
+            </>
           )}
           <p className="text-[11px] text-muted-foreground mt-3 text-center">
             Prices in NGN. Powered by Paystack.
