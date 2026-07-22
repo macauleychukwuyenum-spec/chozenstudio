@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { formatNGN } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { Check, Crown, Sparkles, Rocket, Gem, BadgeCheck } from "lucide-react";
+import { Check, Crown, Sparkles, Rocket, Gem, BadgeCheck, PenLine } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/dashboard/tiers/")({
   component: TiersListPage,
@@ -126,6 +126,13 @@ function TiersListPage() {
                   {actionLabel}
                 </Link>
               </Button>
+              {isCurrentActive && t.can_submit_blogs && (
+                <Button asChild className="mt-2 rounded-xl gradient-primary text-primary-foreground shadow-glow">
+                  <Link to="/dashboard/blog">
+                    <PenLine className="w-4 h-4 mr-1" /> Add blog for approval
+                  </Link>
+                </Button>
+              )}
             </div>
           );
         })}
@@ -133,3 +140,4 @@ function TiersListPage() {
     </div>
   );
 }
+
