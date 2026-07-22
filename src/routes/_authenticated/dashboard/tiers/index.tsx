@@ -29,7 +29,10 @@ function TiersListPage() {
     queryKey: ["my-purchases", uid],
     enabled: !!uid,
     queryFn: async () => {
-      const { data, error } = await supabase.from("tier_purchases").select("*").eq("user_id", uid!);
+      const { data, error } = await supabase
+        .from("tier_purchases")
+        .select("*, tiers(name, slug, sort_order, max_referrals)")
+        .eq("user_id", uid!);
       if (error) throw error;
       return data;
     },
@@ -37,6 +40,8 @@ function TiersListPage() {
 
   const statusByTier = new Map<string, "active" | "completed">();
   const activeCycleByTier = new Map<string, any>();
+  const activeCycle = purchases?.find((p: any) => p.cycle_status === "active");
+  const activeSort = Number((activeCycle as any)?.tiers?.sort_order ?? 0);
   purchases?.forEach((p) => {
     const prev = statusByTier.get(p.tier_id);
     if (p.cycle_status === "active") {
@@ -60,6 +65,16 @@ function TiersListPage() {
           const Icon = ICONS[t.slug] ?? Sparkles;
           const status = statusByTier.get(t.id);
           const cycle = activeCycleByTier.get(t.id);
+          const isCurrentActive = activeCycle?.tier_id === t.id;
+          const actionLabel = isCurrentActive
+            ? "View active cycle"
+            : activeCycle
+              ? Number(t.sort_order) > activeSort
+                ? `Upgrade to ${t.name}`
+                : `Downgrade to ${t.name}`
+              : status === "completed"
+                ? `Renew ${t.name}`
+                : `Get ${t.name}`;
           const benefits = Array.isArray(t.benefits) ? (t.benefits as string[]) : [];
           const used = cycle ? Number(cycle.rewarded_referrals_count) : 0;
           const cap = Number(t.max_referrals);
@@ -104,11 +119,11 @@ function TiersListPage() {
               </ul>
               <Button
                 asChild
-                className={`mt-5 rounded-xl ${status === "active" ? "" : "gradient-primary text-primary-foreground shadow-glow"}`}
-                variant={status === "active" ? "outline" : "default"}
+                className={`mt-5 rounded-xl ${isCurrentActive ? "" : "gradient-primary text-primary-foreground shadow-glow"}`}
+                variant={isCurrentActive ? "outline" : "default"}
               >
                 <Link to="/dashboard/tiers/$slug" params={{ slug: t.slug }}>
-                  {status === "active" ? "View cycle" : status === "completed" ? `Renew ${t.name}` : `Get ${t.name}`}
+                  {actionLabel}
                 </Link>
               </Button>
             </div>
