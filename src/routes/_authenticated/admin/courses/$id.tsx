@@ -16,6 +16,29 @@ export const Route = createFileRoute("/_authenticated/admin/courses/$id")({
   component: LessonsAdmin,
 });
 
+const COURSE_DOCUMENT_ACCEPT = [
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".ppt",
+  ".pptx",
+  ".xls",
+  ".xlsx",
+  ".txt",
+  ".csv",
+  ".zip",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "text/csv",
+  "application/zip",
+].join(",");
+
 function LessonsAdmin() {
   const { id } = Route.useParams();
   const qc = useQueryClient();
@@ -126,8 +149,8 @@ function LessonsAdmin() {
               <Input placeholder="Or paste YouTube/Vimeo embed URL" value={videoPath?.startsWith("http") ? videoPath : ""} onChange={(e) => setVideoPath(e.target.value || null)} />
             </div>
             <div className="space-y-2">
-              <Label>Attachment (optional)</Label>
-              <FileUpload bucket="course-files" value={attachmentPath} onChange={setAttachmentPath} accept="*" maxMB={100} label="Upload file" preview={false} />
+              <Label>Attachment (PDF or document)</Label>
+              <FileUpload bucket="course-files" value={attachmentPath} onChange={setAttachmentPath} accept={COURSE_DOCUMENT_ACCEPT} maxMB={200} label="Upload PDF/document" preview={false} />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2"><Label>Order</Label><Input name="order_index" type="number" defaultValue={editing?.order_index ?? (lessons?.length ?? 0)} /></div>
