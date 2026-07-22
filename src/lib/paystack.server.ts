@@ -70,7 +70,9 @@ export async function paystackVerify(reference: string): Promise<PaystackVerifyR
  *  - create tier_purchase if tier payment
  *  - credit referrer per tier reward_percentage (once per referred user + tier cycle)
  *  - write wallet ledger entries + notifications
- * Safe to call from callback AND webhook (uses payments.status guard).
+ * Safe to call from callback AND webhook. A successful payment may be retried
+ * after the payment row was marked success, so tier/referral side effects must
+ * also be idempotent.
  */
 export async function finalizePayment(reference: string): Promise<{
   ok: boolean;
@@ -86,59 +88,76 @@ export async function finalizePayment(reference: string): Promise<{
     .maybeSingle();
 
   if (!payment) return { ok: false, status: "not_found", message: "Payment record missing" };
-  if (payment.status === "success") return { ok: true, status: "success", message: "Already finalized" };
 
-  const verify = await paystackVerify(reference);
-  if (!verify.status || verify.data?.status !== "success") {
-    await supabaseAdmin
+  let paidNgn = Number(payment.amount_ngn ?? 0);
+  if (payment.status !== "success") {
+    const verify = await paystackVerify(reference);
+    if (!verify.status || verify.data?.status !== "success") {
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "failed" })
+        .eq("id", payment.id);
+      return { ok: false, status: "failed", message: verify.message || "Verification failed" };
+    }
+
+    paidNgn = Number((verify.data.amount / 100).toFixed(2));
+
+    // Mark success first (guards against re-entrancy)
+    const { error: markErr } = await supabaseAdmin
       .from("payments")
-      .update({ status: "failed" })
-      .eq("id", payment.id);
-    return { ok: false, status: "failed", message: verify.message || "Verification failed" };
+      .update({ status: "success", verified_at: new Date().toISOString(), amount_ngn: paidNgn })
+      .eq("id", payment.id)
+      .eq("status", "pending");
+    if (markErr) return { ok: false, status: "error", message: markErr.message };
   }
-
-  const paidNgn = Number((verify.data.amount / 100).toFixed(2));
-
-  // Mark success first (guards against re-entrancy)
-  const { error: markErr } = await supabaseAdmin
-    .from("payments")
-    .update({ status: "success", verified_at: new Date().toISOString(), amount_ngn: paidNgn })
-    .eq("id", payment.id)
-    .eq("status", "pending");
-  if (markErr) return { ok: false, status: "error", message: markErr.message };
 
   // Tier purchase flow
   if (payment.tier_id) {
     const { data: tier } = await supabaseAdmin.from("tiers").select("*").eq("id", payment.tier_id).maybeSingle();
     if (!tier) return { ok: false, status: "error", message: "Tier missing" };
 
-    const completedAt = new Date().toISOString();
-    await supabaseAdmin
-      .from("tier_purchases")
-      .update({ cycle_status: "completed", completed_at: completedAt })
-      .eq("user_id", payment.user_id)
-      .eq("cycle_status", "active");
+    let purchase = null;
+    if (payment.purchase_id) {
+      const { data: existingPurchase } = await supabaseAdmin
+        .from("tier_purchases")
+        .select("*")
+        .eq("id", payment.purchase_id)
+        .maybeSingle();
+      purchase = existingPurchase;
+    }
 
-    const { data: purchase, error: purchErr } = await supabaseAdmin
-      .from("tier_purchases")
-      .insert({
+    if (!purchase) {
+      const completedAt = new Date().toISOString();
+      await supabaseAdmin
+        .from("tier_purchases")
+        .update({ cycle_status: "completed", completed_at: completedAt })
+        .eq("user_id", payment.user_id)
+        .eq("cycle_status", "active");
+
+      const { data: newPurchase, error: purchErr } = await supabaseAdmin
+        .from("tier_purchases")
+        .insert({
+          user_id: payment.user_id,
+          tier_id: payment.tier_id,
+          amount_paid_ngn: paidNgn,
+          cycle_status: "active",
+        })
+        .select()
+        .single();
+      if (purchErr) return { ok: false, status: "error", message: purchErr.message };
+      purchase = newPurchase;
+
+      await supabaseAdmin.from("payments").update({ purchase_id: purchase.id }).eq("id", payment.id);
+
+      // Notify buyer only when the purchase is first created.
+      await supabaseAdmin.from("notifications").insert({
         user_id: payment.user_id,
-        tier_id: payment.tier_id,
-        amount_paid_ngn: paidNgn,
-        cycle_status: "active",
-      })
-      .select()
-      .single();
-    if (purchErr) return { ok: false, status: "error", message: purchErr.message };
+        title: `${tier.name} tier activated`,
+        body: `Your ${tier.name} tier is now active. Enjoy your benefits.`,
+      });
+    }
 
-    await supabaseAdmin.from("payments").update({ purchase_id: purchase.id }).eq("id", payment.id);
-
-    // Notify buyer
-    await supabaseAdmin.from("notifications").insert({
-      user_id: payment.user_id,
-      title: `${tier.name} tier activated`,
-      body: `Your ${tier.name} tier is now active. Enjoy your benefits.`,
-    });
+    const rewardBaseNgn = paidNgn || Number(purchase.amount_paid_ngn ?? 0);
 
     // --- Referral crediting: only direct referrer, only first rewarded tier purchase by this user ---
     const { data: buyer } = await supabaseAdmin
@@ -168,7 +187,7 @@ export async function finalizePayment(reference: string): Promise<{
           .limit(1)
           .maybeSingle();
 
-        const reward = Number(((paidNgn * Number(tier.reward_percentage)) / 100).toFixed(2));
+        const reward = Number(((rewardBaseNgn * Number(tier.reward_percentage)) / 100).toFixed(2));
 
         if (referrerActive && referrerActive.rewarded_referrals_count < Number(referrerActive.tiers?.max_referrals ?? 0)) {
           // Credit wallet
