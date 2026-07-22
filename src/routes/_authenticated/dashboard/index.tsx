@@ -6,7 +6,7 @@ import { formatNGN } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Copy, Wallet, Users, TrendingUp, Layers, ArrowRight,
-  GraduationCap, Package, Wrench, BadgeCheck,
+  GraduationCap, Package, Wrench, BadgeCheck, PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
 import { referralLink } from "@/lib/referral";
@@ -49,6 +49,7 @@ function DashboardHome() {
   const refLink = referralLink(refCode);
 
   const activeTier = data?.purchases.find((p) => p.cycle_status === "active");
+  const canSubmitBlog = Boolean(activeTier?.tiers?.can_submit_blogs);
 
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-8 py-6 md:py-10 space-y-6">
@@ -131,6 +132,7 @@ function DashboardHome() {
           <QuickAction to="/dashboard/wallet" icon={Wallet} label="Withdraw" />
           <QuickAction to="/dashboard/referrals" icon={Users} label="Referrals" />
           <QuickAction to="/blog" icon={BadgeCheck} label="Blog" />
+          {canSubmitBlog && <QuickAction to="/dashboard/blog" icon={PenLine} label="Add blog" />}
           <QuickAction to="/courses" icon={GraduationCap} label="Courses" />
           <QuickAction to="/products" icon={Package} label="Products" />
           <QuickAction to="/services" icon={Wrench} label="Book service" />
