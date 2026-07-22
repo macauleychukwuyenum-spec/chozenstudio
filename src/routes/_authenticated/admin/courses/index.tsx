@@ -25,10 +25,29 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
   const qc = useQueryClient();
   const [editing, setEditing] = useState<any | null>(null);
   const [creating, setCreating] = useState(false);
+  const [allowedTierIds, setAllowedTierIds] = useState<string[]>([]);
   const { data } = useQuery({
     queryKey: [`admin-${table}`],
     queryFn: async () => {
       const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      if (table !== "digital_products" || !data?.length) return data;
+
+      const { data: accessRows } = await supabase
+        .from("digital_product_tiers" as any)
+        .select("product_id,tier_id");
+      const accessMap = new Map<string, string[]>();
+      ((accessRows as any[]) ?? []).forEach((row) => {
+        accessMap.set(row.product_id, [...(accessMap.get(row.product_id) ?? []), row.tier_id]);
+      });
+      return data.map((row: any) => ({ ...row, allowed_tier_ids: accessMap.get(row.id) ?? [] }));
+    },
+  });
+  const { data: tiers } = useQuery({
+    queryKey: ["admin-product-tiers"],
+    enabled: table === "digital_products",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tiers").select("id,name,slug,sort_order").eq("active", true).order("sort_order");
       if (error) throw error;
       return data;
     },
@@ -40,10 +59,10 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
   const fileBucket = "product-files";
 
   function openCreate() {
-    setCoverPath(null); setFilePath(null); setCreating(true);
+    setCoverPath(null); setFilePath(null); setAllowedTierIds([]); setCreating(true);
   }
   function openEdit(row: any) {
-    setCoverPath(row.cover_url ?? null); setFilePath(row.file_url ?? null); setEditing(row);
+    setCoverPath(row.cover_url ?? null); setFilePath(row.file_url ?? null); setAllowedTierIds(row.allowed_tier_ids ?? []); setEditing(row);
   }
 
   async function save(e: React.FormEvent<HTMLFormElement>) {
@@ -60,14 +79,30 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
     };
     if (table === "digital_products") payload.file_url = filePath;
 
+    let savedId = editing?.id;
     if (editing) {
       const { error } = await supabase.from(table).update(payload).eq("id", editing.id);
       if (error) return toast.error(error.message);
       await logAudit({ action: `${table}.edit`, target_type: table, target_id: editing.id, after_data: payload });
     } else {
-      const { error } = await supabase.from(table).insert(payload);
+      const { data: inserted, error } = await supabase.from(table).insert(payload).select("id").single();
       if (error) return toast.error(error.message);
+      savedId = inserted.id;
       await logAudit({ action: `${table}.create`, target_type: table, after_data: payload });
+    }
+    if (table === "digital_products" && savedId) {
+      const { error: deleteErr } = await supabase
+        .from("digital_product_tiers" as any)
+        .delete()
+        .eq("product_id", savedId);
+      if (deleteErr) return toast.error(deleteErr.message);
+
+      if (allowedTierIds.length) {
+        const { error: accessErr } = await supabase
+          .from("digital_product_tiers" as any)
+          .insert(allowedTierIds.map((tierId) => ({ product_id: savedId, tier_id: tierId })));
+        if (accessErr) return toast.error(accessErr.message);
+      }
     }
     toast.success("Saved");
     setEditing(null); setCreating(false);
@@ -150,6 +185,29 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
               <Field name="price_ngn" label="Price (NGN)" type="number" defaultValue={editing?.price_ngn ?? 0} />
               <Field name="required_access_level" label="Access level (1-4)" type="number" defaultValue={editing?.required_access_level ?? 1} />
             </div>
+            {table === "digital_products" && (
+              <div className="space-y-2">
+                <Label>Allowed tiers</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(tiers ?? []).map((tier: any) => (
+                    <label key={tier.id} className="glass rounded-lg px-3 py-2 text-sm flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allowedTierIds.includes(tier.id)}
+                        onChange={(event) => {
+                          setAllowedTierIds((current) =>
+                            event.target.checked
+                              ? [...current, tier.id]
+                              : current.filter((id) => id !== tier.id),
+                          );
+                        }}
+                      />
+                      {tier.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="published" defaultChecked={editing?.published ?? true} /> Published</label>
             <DialogFooter><Button type="submit" className="gradient-primary text-primary-foreground">Save</Button></DialogFooter>
           </form>
