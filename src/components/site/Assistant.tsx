@@ -27,7 +27,7 @@ const INTENTS: { match: RegExp; reply: string; cta?: { label: string; to: string
   { match: /(book|service|flyer|logo|design|website|consult)/i,
     reply: "Book any professional service on the Services page — website, flyer, branding, or consultation.",
     cta: [{ label: "Services", to: "/services" }] },
-  { match: /(course|learn|lesson)/i, reply: "Courses are unlocked by your Chozen Tier. Browse the catalog to see what's available.", cta: [{ label: "Courses", to: "/courses" }] },
+  { match: /(course|learn|lesson)/i, reply: "Courses can be bought directly or unlocked by an eligible Chozen Tier. Browse the catalog to see what's available.", cta: [{ label: "Courses", to: "/courses" }] },
   { match: /(product|download|template|ebook)/i, reply: "Digital products are available for download based on your tier.", cta: [{ label: "Products", to: "/products" }] },
   { match: /(blog|article|post|write)/i, reply: "Everyone can read all articles. Eligible tiers can submit posts for admin review.", cta: [{ label: "Blog", to: "/blog" }] },
   { match: /(sign ?up|register|account|create)/i, reply: "Create an account with email or Google. You'll need to accept the Terms, Privacy Policy and Referral Rewards Policy.", cta: [{ label: "Sign up", to: "/auth" }] },
