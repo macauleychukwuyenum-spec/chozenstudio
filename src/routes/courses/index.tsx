@@ -10,7 +10,7 @@ export const Route = createFileRoute("/courses/")({
   head: () => ({
     meta: [
       { title: "Courses | Chozen Studio" },
-      { name: "description", content: "Premium courses on tech, design, and business — unlocked with your Chozen Tier." },
+      { name: "description", content: "Premium courses on tech, design, and business." },
     ],
   }),
   component: CoursesList,
@@ -34,7 +34,7 @@ function CoursesList() {
             <GraduationCap className="w-6 h-6" />
           </div>
           <h1 className="text-4xl md:text-5xl font-display font-bold">Courses</h1>
-          <p className="mt-3 text-muted-foreground">Learn from curated programs — unlocked by your Chozen Tier.</p>
+          <p className="mt-3 text-muted-foreground">Learn from curated programs. Buy directly or use an eligible Chozen Tier.</p>
         </div>
         {data?.length ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
