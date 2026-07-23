@@ -19,6 +19,7 @@ function CallbackPage() {
   const qc = useQueryClient();
   const [state, setState] = useState<"loading" | "success" | "error">("loading");
   const [msg, setMsg] = useState("Verifying your payment...");
+  const [redirect, setRedirect] = useState<{ to: string; label: string } | null>(null);
 
   useEffect(() => {
     if (!reference) {
@@ -31,7 +32,8 @@ function CallbackPage() {
         const res = await verify({ data: { reference } });
         if (res.ok) {
           setState("success");
-          setMsg("Payment confirmed. Your tier is active.");
+          setMsg(res.message || "Payment confirmed.");
+          setRedirect(res.redirectTo ? { to: res.redirectTo, label: res.redirectLabel || "View purchase" } : null);
           qc.invalidateQueries();
         } else {
           setState("error");
@@ -55,8 +57,13 @@ function CallbackPage() {
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">{msg}</p>
         <div className="mt-6 flex gap-2 justify-center">
+          {redirect && (
+            <Button asChild className="gradient-primary text-primary-foreground">
+              <Link to={redirect.to as any}>{redirect.label}</Link>
+            </Button>
+          )}
           <Button asChild variant="outline"><Link to="/tiers">Tiers</Link></Button>
-          <Button asChild className="gradient-primary text-primary-foreground"><Link to="/dashboard">Dashboard</Link></Button>
+          <Button asChild className={redirect ? "" : "gradient-primary text-primary-foreground"}><Link to="/dashboard">Dashboard</Link></Button>
         </div>
         {reference && <div className="text-[11px] text-muted-foreground mt-6">Ref: {reference}</div>}
       </div>
