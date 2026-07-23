@@ -78,6 +78,8 @@ export async function finalizePayment(reference: string): Promise<{
   ok: boolean;
   status: string;
   message: string;
+  redirectTo?: string;
+  redirectLabel?: string;
 }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -89,6 +91,9 @@ export async function finalizePayment(reference: string): Promise<{
 
   if (!payment) return { ok: false, status: "not_found", message: "Payment record missing" };
 
+  let completionMessage = "Payment finalized";
+  let redirectTo: string | undefined;
+  let redirectLabel: string | undefined;
   let paidNgn = Number(payment.amount_ngn ?? 0);
   if (payment.status !== "success") {
     const verify = await paystackVerify(reference);
@@ -115,6 +120,9 @@ export async function finalizePayment(reference: string): Promise<{
   if (payment.tier_id) {
     const { data: tier } = await supabaseAdmin.from("tiers").select("*").eq("id", payment.tier_id).maybeSingle();
     if (!tier) return { ok: false, status: "error", message: "Tier missing" };
+    completionMessage = `${tier.name} tier activated`;
+    redirectTo = "/dashboard/tiers";
+    redirectLabel = "View tier";
 
     let purchase = null;
     if (payment.purchase_id) {
@@ -273,6 +281,9 @@ export async function finalizePayment(reference: string): Promise<{
       .eq("id", productId)
       .maybeSingle();
     if (!product) return { ok: false, status: "error", message: "Product missing" };
+    completionMessage = `${product.title} unlocked`;
+    redirectTo = `/products/${product.slug}`;
+    redirectLabel = "View product";
 
     let productPurchase = null;
     const productPurchaseId = (payment as any).product_purchase_id as string | null | undefined;
@@ -340,5 +351,5 @@ export async function finalizePayment(reference: string): Promise<{
     }
   }
 
-  return { ok: true, status: "success", message: "Payment finalized" };
+  return { ok: true, status: "success", message: completionMessage, redirectTo, redirectLabel };
 }
