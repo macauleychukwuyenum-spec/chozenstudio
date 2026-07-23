@@ -28,6 +28,7 @@ function ProductDetail() {
   const checkout = useServerFn(initializeProductCheckout);
   const qc = useQueryClient();
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [fileLoading, setFileLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const { data } = useQuery({
@@ -99,9 +100,21 @@ function ProductDetail() {
   useEffect(() => {
     if (!hasAccess || !product?.file_url) {
       setFileUrl(null);
+      setFileLoading(false);
       return;
     }
-    resolveStorageUrl("product-files", product.file_url).then(setFileUrl);
+    let cancelled = false;
+    setFileLoading(true);
+    resolveStorageUrl("product-files", product.file_url)
+      .then((url) => {
+        if (!cancelled) setFileUrl(url);
+      })
+      .finally(() => {
+        if (!cancelled) setFileLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [hasAccess, product?.file_url]);
 
   async function buyProduct() {
@@ -169,6 +182,14 @@ function ProductDetail() {
                     </p>
                   </div>
                 </div>
+                {fileLoading && (
+                  <div className="mt-4 text-sm text-muted-foreground">Preparing secure file...</div>
+                )}
+                {!fileLoading && product.file_url && !fileUrl && (
+                  <div className="mt-4 rounded-xl border border-border p-4 text-sm text-muted-foreground">
+                    The product is unlocked, but the secure file link could not be prepared. Apply the latest Supabase migration and confirm the file still exists in product-files.
+                  </div>
+                )}
                 {fileUrl && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button asChild className="gradient-primary text-primary-foreground">
@@ -190,7 +211,9 @@ function ProductDetail() {
                   <Lock className="w-5 h-5 text-muted-foreground" />
                   <div>
                     <div className="font-display font-semibold">File locked</div>
-                    <p className="text-sm text-muted-foreground">Buy this product or use an allowed Chozen tier to view and download it.</p>
+                    <p className="text-sm text-muted-foreground">
+                      Buy this product{product.price_ngn ? ` for ${formatNGN(product.price_ngn)}` : ""} or use an allowed Chozen tier to view and download it.
+                    </p>
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
