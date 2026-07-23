@@ -108,7 +108,7 @@ function ProductsList() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {data.map((product: any) => (
               <div key={product.id} className="glass rounded-2xl overflow-hidden">
-                <a href={`/products/${product.slug}`} className="block hover:opacity-95 transition">
+                <Link to="/products/$slug" params={{ slug: product.slug }} className="block hover:opacity-95 transition">
                   <SignedImage
                     bucket="product-files"
                     path={product.cover_url}
@@ -116,11 +116,11 @@ function ProductsList() {
                     className="w-full aspect-[16/10] object-cover"
                     fallback={<div className="w-full aspect-[16/10] gradient-primary" />}
                   />
-                </a>
+                </Link>
                 <div className="p-5">
-                  <a href={`/products/${product.slug}`} className="hover:text-primary transition">
+                  <Link to="/products/$slug" params={{ slug: product.slug }} className="hover:text-primary transition">
                     <h3 className="font-display font-semibold text-lg">{product.title}</h3>
-                  </a>
+                  </Link>
                   <p className="text-sm text-muted-foreground mt-1 line-clamp-3">{product.description}</p>
                   <div className="mt-3 flex items-end justify-between gap-3 text-sm">
                     <span className="text-muted-foreground">
@@ -135,9 +135,9 @@ function ProductsList() {
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     <Button asChild size="sm" variant="outline">
-                      <a href={`/products/${product.slug}`}>
+                      <Link to="/products/$slug" params={{ slug: product.slug }}>
                         <Eye className="w-4 h-4 mr-1" /> View
-                      </a>
+                      </Link>
                     </Button>
                     {uid ? (
                       <Button
