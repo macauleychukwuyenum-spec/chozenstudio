@@ -11,6 +11,7 @@ export function ZoomableSignedImage({
   className,
   wrapperClassName,
   fallback,
+  priority = false,
 }: {
   bucket: Bucket;
   path?: string | null;
@@ -18,6 +19,7 @@ export function ZoomableSignedImage({
   className?: string;
   wrapperClassName?: string;
   fallback?: React.ReactNode;
+  priority?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -46,7 +48,7 @@ export function ZoomableSignedImage({
         className={`group relative block overflow-hidden text-left ${wrapperClassName ?? ""}`}
         aria-label={`View ${alt} full screen`}
       >
-        <img src={url} alt={alt} className={className} loading="lazy" />
+        <img src={url} alt={alt} className={className} loading={priority ? "eager" : "lazy"} decoding="async" fetchPriority={priority ? "high" : "auto"} />
         <span className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-background/85 text-foreground opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-visible:opacity-100">
           <Maximize2 className="h-4 w-4" />
         </span>
@@ -72,6 +74,7 @@ export function ZoomableSignedImage({
             src={url}
             alt={alt}
             className="max-h-[90vh] max-w-[94vw] rounded-lg object-contain shadow-2xl"
+            decoding="async"
             onClick={(event) => event.stopPropagation()}
           />
         </div>
