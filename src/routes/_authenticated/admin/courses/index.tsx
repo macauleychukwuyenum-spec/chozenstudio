@@ -13,6 +13,29 @@ import { Pencil, Plus, Trash2, EyeOff, Eye, ListOrdered } from "lucide-react";
 import { useState } from "react";
 import { FileUpload } from "@/components/site/FileUpload";
 
+const DOCUMENT_ACCEPT = [
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".ppt",
+  ".pptx",
+  ".xls",
+  ".xlsx",
+  ".txt",
+  ".csv",
+  ".zip",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "text/csv",
+  "application/zip",
+].join(",");
+
 export const Route = createFileRoute("/_authenticated/admin/courses/")({
   component: AdminCourses,
 });
@@ -55,14 +78,15 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
 
   const [coverPath, setCoverPath] = useState<string | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [courseResourcePath, setCourseResourcePath] = useState<string | null>(null);
   const coverBucket = table === "courses" ? "course-files" : "product-files";
   const fileBucket = "product-files";
 
   function openCreate() {
-    setCoverPath(null); setFilePath(null); setAllowedTierIds([]); setCreating(true);
+    setCoverPath(null); setFilePath(null); setCourseResourcePath(null); setAllowedTierIds([]); setCreating(true);
   }
   function openEdit(row: any) {
-    setCoverPath(row.cover_url ?? null); setFilePath(row.file_url ?? null); setAllowedTierIds(row.allowed_tier_ids ?? []); setEditing(row);
+    setCoverPath(row.cover_url ?? null); setFilePath(row.file_url ?? null); setCourseResourcePath(row.resource_url ?? null); setAllowedTierIds(row.allowed_tier_ids ?? []); setEditing(row);
   }
 
   async function save(e: React.FormEvent<HTMLFormElement>) {
@@ -78,6 +102,7 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
       published: f.get("published") === "on",
     };
     if (table === "digital_products") payload.file_url = filePath;
+    if (table === "courses") payload.resource_url = courseResourcePath;
 
     let savedId = editing?.id;
     if (editing) {
@@ -175,6 +200,12 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
               <Label>Cover image</Label>
               <FileUpload bucket={coverBucket} value={coverPath} onChange={setCoverPath} accept="image/*" maxMB={5} label="Upload cover" />
             </div>
+            {table === "courses" && (
+              <div className="space-y-2">
+                <Label>Course document/resource</Label>
+                <FileUpload bucket="course-files" value={courseResourcePath} onChange={setCourseResourcePath} accept={DOCUMENT_ACCEPT} maxMB={200} label="Upload document" preview={false} />
+              </div>
+            )}
             {table === "digital_products" && (
               <div className="space-y-2">
                 <Label>Downloadable file</Label>
