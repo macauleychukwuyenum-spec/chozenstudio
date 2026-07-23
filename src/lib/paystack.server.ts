@@ -351,5 +351,83 @@ export async function finalizePayment(reference: string): Promise<{
     }
   }
 
+  const courseId = (payment as any).course_id as string | null | undefined;
+  if (courseId) {
+    const { data: course } = await supabaseAdmin
+      .from("courses")
+      .select("*")
+      .eq("id", courseId)
+      .maybeSingle();
+    if (!course) return { ok: false, status: "error", message: "Course missing" };
+    completionMessage = `${course.title} unlocked`;
+    redirectTo = `/courses/${course.slug}`;
+    redirectLabel = "View course";
+
+    let coursePurchase = null;
+    const coursePurchaseId = (payment as any).course_purchase_id as string | null | undefined;
+    if (coursePurchaseId) {
+      const { data: existingById } = await supabaseAdmin
+        .from("course_purchases" as any)
+        .select("*")
+        .eq("id", coursePurchaseId)
+        .maybeSingle();
+      coursePurchase = existingById;
+    }
+
+    if (!coursePurchase) {
+      const { data: existingByReference } = await supabaseAdmin
+        .from("course_purchases" as any)
+        .select("*")
+        .eq("payment_reference", reference)
+        .maybeSingle();
+      coursePurchase = existingByReference;
+    }
+
+    if (!coursePurchase) {
+      const { data: existingByCourse } = await supabaseAdmin
+        .from("course_purchases" as any)
+        .select("*")
+        .eq("user_id", payment.user_id)
+        .eq("course_id", courseId)
+        .maybeSingle();
+      coursePurchase = existingByCourse;
+    }
+
+    let createdCoursePurchase = false;
+    if (!coursePurchase) {
+      const { data: newCoursePurchase, error: coursePurchaseErr } = await supabaseAdmin
+        .from("course_purchases" as any)
+        .insert({
+          user_id: payment.user_id,
+          course_id: courseId,
+          amount_paid_ngn: paidNgn || Number(course.price_ngn ?? 0),
+          payment_reference: reference,
+        })
+        .select()
+        .single();
+      if (coursePurchaseErr) return { ok: false, status: "error", message: coursePurchaseErr.message };
+      coursePurchase = newCoursePurchase;
+      createdCoursePurchase = true;
+    } else if (!coursePurchase.payment_reference) {
+      await supabaseAdmin
+        .from("course_purchases" as any)
+        .update({ payment_reference: reference })
+        .eq("id", coursePurchase.id);
+    }
+
+    await supabaseAdmin
+      .from("payments" as any)
+      .update({ course_purchase_id: coursePurchase.id })
+      .eq("id", payment.id);
+
+    if (createdCoursePurchase) {
+      await supabaseAdmin.from("notifications").insert({
+        user_id: payment.user_id,
+        title: `${course.title} unlocked`,
+        body: "Your course is ready. You can now start learning.",
+      });
+    }
+  }
+
   return { ok: true, status: "success", message: completionMessage, redirectTo, redirectLabel };
 }
