@@ -365,6 +365,101 @@ export const purchaseProductWithWallet = createServerFn({ method: "POST" })
     return { ok: true, redirectTo: `/products/${product.slug}`, message: `${product.title} unlocked` };
   });
 
+export const ensureProductAccess = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z.object({ productId: z.string().uuid() }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: product, error: productErr } = await supabaseAdmin
+      .from("digital_products")
+      .select("*")
+      .eq("id", data.productId)
+      .eq("published", true)
+      .maybeSingle();
+    if (productErr || !product) throw new Error("Product not found");
+
+    const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", userId);
+    const isAdmin = Boolean(roles?.some((role: any) => role.role === "admin"));
+
+    let { data: purchase } = await supabaseAdmin
+      .from("product_purchases" as any)
+      .select("*")
+      .eq("user_id", userId)
+      .eq("product_id", product.id)
+      .maybeSingle();
+
+    if (!purchase) {
+      const { data: payments } = await supabaseAdmin
+        .from("payments" as any)
+        .select("*")
+        .eq("user_id", userId)
+        .eq("product_id", product.id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      for (const payment of (payments as any[]) ?? []) {
+        if (payment.status === "pending" && payment.paystack_reference?.startsWith("chozen_product_")) {
+          const { finalizePayment } = await import("./paystack.server");
+          await finalizePayment(payment.paystack_reference);
+        }
+
+        const { data: refreshedPurchase } = await supabaseAdmin
+          .from("product_purchases" as any)
+          .select("*")
+          .eq("user_id", userId)
+          .eq("product_id", product.id)
+          .maybeSingle();
+        if (refreshedPurchase) {
+          purchase = refreshedPurchase;
+          break;
+        }
+
+        if (payment.status === "success") {
+          const { data: repairedPurchase, error: repairErr } = await supabaseAdmin
+            .from("product_purchases" as any)
+            .insert({
+              user_id: userId,
+              product_id: product.id,
+              amount_paid_ngn: Number(payment.amount_ngn ?? product.price_ngn ?? 0),
+              payment_reference: payment.paystack_reference,
+            })
+            .select()
+            .single();
+          if (!repairErr) {
+            purchase = repairedPurchase;
+            await supabaseAdmin
+              .from("payments" as any)
+              .update({ product_purchase_id: repairedPurchase.id })
+              .eq("id", payment.id);
+            break;
+          }
+        }
+      }
+    }
+
+    const hasAccess = isAdmin || Boolean(purchase);
+    let fileUrl: string | null = null;
+    if (hasAccess && product.file_url) {
+      const { data: signed, error: signedErr } = await supabaseAdmin.storage
+        .from("product-files")
+        .createSignedUrl(product.file_url, 60 * 60 * 24);
+      if (signedErr) throw new Error(signedErr.message);
+      fileUrl = signed.signedUrl;
+    }
+
+    return {
+      hasAccess,
+      isAdmin,
+      owned: Boolean(purchase),
+      fileUrl,
+      message: hasAccess ? "Product access confirmed" : "No completed purchase found for this product.",
+    };
+  });
+
 export const purchaseCourseWithWallet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
