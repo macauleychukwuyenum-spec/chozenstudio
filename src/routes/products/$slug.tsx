@@ -6,10 +6,11 @@ import { PublicLayout } from "@/components/site/PublicLayout";
 import { ZoomableSignedImage } from "@/components/site/ZoomableSignedImage";
 import { resolveStorageUrl } from "@/components/site/FileUpload";
 import { useAuth } from "@/lib/auth-context";
-import { initializeProductCheckout } from "@/lib/paystack.functions";
+import { initializeProductCheckout, purchaseProductWithWallet } from "@/lib/paystack.functions";
 import { formatNGN } from "@/lib/format";
+import { calculateDiscountedPrice, tierDiscountApplies } from "@/lib/product-pricing";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Eye, Lock, ShoppingCart } from "lucide-react";
+import { ArrowLeft, CreditCard, Download, Eye, Lock, ShoppingCart, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +27,7 @@ function ProductDetail() {
   const { user } = useAuth();
   const uid = user?.id;
   const checkout = useServerFn(initializeProductCheckout);
+  const walletPurchase = useServerFn(purchaseProductWithWallet);
   const qc = useQueryClient();
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
@@ -50,32 +52,38 @@ function ProductDetail() {
 
       let owned = false;
       let isAdmin = false;
-      let tierUnlocked = false;
+      let discountPercentage = 0;
       let activeTierName: string | null = null;
+      let walletBalance = 0;
 
       if (uid) {
-        const [{ data: roles }, { data: ownedRow }, { data: activeCycles }] = await Promise.all([
+        const [{ data: roles }, { data: ownedRow }, { data: activeCycle }, { data: wallet }] = await Promise.all([
           supabase.from("user_roles").select("role").eq("user_id", uid),
           supabase.from("product_purchases" as any).select("id").eq("user_id", uid).eq("product_id", product.id).maybeSingle(),
           supabase
             .from("tier_purchases")
-            .select("tier_id, tiers(name,digital_access_level)")
+            .select("tier_id, tiers(name,service_discount_percentage)")
             .eq("user_id", uid)
-            .eq("cycle_status", "active"),
+            .eq("cycle_status", "active")
+            .order("purchased_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supabase.from("wallets").select("balance_ngn").eq("user_id", uid).maybeSingle(),
         ]);
 
         owned = Boolean(ownedRow);
         isAdmin = Boolean(roles?.some((role: any) => role.role === "admin"));
-        const selectedTierIds = new Set(((allowedRows as any[]) ?? []).map((row) => row.tier_id));
-        const cycles = (activeCycles as any[]) ?? [];
-        const selectedCycle = cycles.find((cycle) => selectedTierIds.has(cycle.tier_id));
-        const fallbackCycle = selectedTierIds.size === 0
-          ? cycles.find((cycle) => Number(cycle.tiers?.digital_access_level ?? 0) >= Number(product.required_access_level))
-          : null;
-        const cycle = selectedCycle ?? fallbackCycle;
-        tierUnlocked = Boolean(cycle);
-        activeTierName = cycle?.tiers?.name ?? null;
+        const selectedTierIds = ((allowedRows as any[]) ?? []).map((row) => row.tier_id);
+        const discountEligible = tierDiscountApplies({
+          selectedTierIds,
+          activeTierId: (activeCycle as any)?.tier_id,
+        });
+        discountPercentage = discountEligible ? Number((activeCycle as any)?.tiers?.service_discount_percentage ?? 0) : 0;
+        activeTierName = discountEligible ? ((activeCycle as any)?.tiers?.name ?? null) : null;
+        walletBalance = Number(wallet?.balance_ngn ?? 0);
       }
+
+      const discountedPrice = calculateDiscountedPrice(Number(product.price_ngn), discountPercentage);
 
       return {
         product,
@@ -85,13 +93,15 @@ function ProductDetail() {
           .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0)),
         owned,
         isAdmin,
-        tierUnlocked,
+        discountedPrice,
+        discountPercentage,
         activeTierName,
+        walletBalance,
       };
     },
   });
 
-  const hasAccess = Boolean(data?.isAdmin || data?.owned || data?.tierUnlocked);
+  const hasAccess = Boolean(data?.isAdmin || data?.owned);
   const product = data?.product as any;
   const ext = useMemo(() => String(product?.file_url ?? "").split(".").pop()?.toLowerCase() ?? "", [product?.file_url]);
   const fileIsImage = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext);
@@ -135,6 +145,26 @@ function ProductDetail() {
     }
   }
 
+  async function buyWithWallet() {
+    if (!product) return;
+    if (!uid) {
+      toast.error("Please sign in to buy this product.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await walletPurchase({ data: { productId: product.id } });
+      toast.success(result.message ?? "Product unlocked");
+      qc.invalidateQueries({ queryKey: ["product-detail", slug, uid] });
+      if (result.redirectTo) window.location.href = result.redirectTo;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not pay with wallet");
+      qc.invalidateQueries({ queryKey: ["product-detail", slug, uid] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (isError) {
     return (
       <PublicLayout>
@@ -154,6 +184,9 @@ function ProductDetail() {
   }
 
   if (!data || !product) return <PublicLayout><div className="p-16 text-center text-muted-foreground">Loading...</div></PublicLayout>;
+  const payablePrice = Number(data.discountedPrice ?? product.price_ngn ?? 0);
+  const hasDiscount = Number(data.discountPercentage ?? 0) > 0 && payablePrice < Number(product.price_ngn ?? 0);
+  const walletCanPay = Number(data.walletBalance ?? 0) >= payablePrice;
 
   return (
     <PublicLayout>
@@ -179,13 +212,23 @@ function ProductDetail() {
             </div>
 
             <div className="flex flex-wrap gap-2 text-sm">
-              <span className="glass rounded-full px-3 py-1">{product.price_ngn ? formatNGN(product.price_ngn) : "Included"}</span>
+              <span className="glass rounded-full px-3 py-1">
+                {hasDiscount ? (
+                  <>
+                    <span className="line-through text-muted-foreground mr-2">{formatNGN(product.price_ngn)}</span>
+                    {formatNGN(payablePrice)}
+                  </>
+                ) : (
+                  product.price_ngn ? formatNGN(product.price_ngn) : "Free"
+                )}
+              </span>
+              {hasDiscount ? <span className="glass rounded-full px-3 py-1">{data.activeTierName} discount: {data.discountPercentage}%</span> : null}
               {data.allowedTiers.length ? (
                 data.allowedTiers.map((tier: any) => (
-                  <span key={tier.id} className="glass rounded-full px-3 py-1">{tier.name}</span>
+                  <span key={tier.id} className="glass rounded-full px-3 py-1">{tier.name} discount</span>
                 ))
               ) : (
-                <span className="glass rounded-full px-3 py-1">Access L{product.required_access_level}</span>
+                <span className="glass rounded-full px-3 py-1">Tier discount eligible</span>
               )}
             </div>
 
@@ -196,7 +239,7 @@ function ProductDetail() {
                   <div>
                     <div className="font-display font-semibold">Unlocked</div>
                     <p className="text-sm text-muted-foreground">
-                      {data.isAdmin ? "Admin access" : data.owned ? "Purchased directly" : `Unlocked by ${data.activeTierName ?? "your tier"}`}
+                      {data.isAdmin ? "Admin access" : "Purchased directly"}
                     </p>
                   </div>
                 </div>
@@ -230,15 +273,23 @@ function ProductDetail() {
                   <div>
                     <div className="font-display font-semibold">File locked</div>
                     <p className="text-sm text-muted-foreground">
-                      Buy this product{product.price_ngn ? ` for ${formatNGN(product.price_ngn)}` : ""} or use an allowed Chozen tier to view and download it.
+                      Buy this product{payablePrice ? ` for ${formatNGN(payablePrice)}` : ""}. Your active tier can discount the price, but the file unlocks after purchase.
                     </p>
+                    {uid && (
+                      <p className="mt-1 text-xs text-muted-foreground">Wallet balance: {formatNGN(data.walletBalance ?? 0)}</p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {uid ? (
-                    <Button onClick={buyProduct} disabled={busy} className="gradient-primary text-primary-foreground">
-                      <ShoppingCart className="w-4 h-4 mr-1" /> {busy ? "Starting..." : "Buy product"}
-                    </Button>
+                    <>
+                      <Button onClick={buyProduct} disabled={busy} className="gradient-primary text-primary-foreground">
+                        <CreditCard className="w-4 h-4 mr-1" /> {busy ? "Starting..." : "Pay with Paystack"}
+                      </Button>
+                      <Button onClick={buyWithWallet} disabled={busy || !walletCanPay} variant="outline">
+                        <Wallet className="w-4 h-4 mr-1" /> Pay with wallet
+                      </Button>
+                    </>
                   ) : (
                     <Button asChild className="gradient-primary text-primary-foreground">
                       <Link to="/auth" search={{ mode: "signin" }}>Sign in to buy</Link>
