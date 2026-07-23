@@ -4,17 +4,18 @@ import { resolveStorageUrl } from "./FileUpload";
 type Bucket = "avatars" | "blog-images" | "course-files" | "product-files";
 
 export function SignedImage({
-  bucket, path, alt, className, fallback,
+  bucket, path, alt, className, fallback, priority = false,
 }: {
   bucket: Bucket;
   path?: string | null;
   alt: string;
   className?: string;
   fallback?: React.ReactNode;
+  priority?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => { resolveStorageUrl(bucket, path).then(setUrl); }, [bucket, path]);
   if (!path) return <>{fallback ?? null}</>;
   if (!url) return <div className={`${className ?? ""} bg-muted animate-pulse`} />;
-  return <img src={url} alt={alt} className={className} loading="lazy" />;
+  return <img src={url} alt={alt} className={className} loading={priority ? "eager" : "lazy"} decoding="async" fetchPriority={priority ? "high" : "auto"} />;
 }
