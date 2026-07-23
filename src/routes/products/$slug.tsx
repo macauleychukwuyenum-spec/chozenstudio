@@ -31,7 +31,7 @@ function ProductDetail() {
   const [fileLoading, setFileLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const { data } = useQuery({
+  const { data, isError, error } = useQuery({
     queryKey: ["product-detail", slug, uid],
     queryFn: async () => {
       const { data: product, error } = await supabase
@@ -133,6 +133,24 @@ function ProductDetail() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (isError) {
+    return (
+      <PublicLayout>
+        <div className="mx-auto max-w-xl px-4 py-16 text-center">
+          <div className="glass-strong rounded-2xl p-8">
+            <h1 className="font-display text-2xl font-bold">Product could not load</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {(error as any)?.message ?? "Apply the latest Supabase product migration and try again."}
+            </p>
+            <Button asChild variant="outline" className="mt-5">
+              <Link to="/products">Back to products</Link>
+            </Button>
+          </div>
+        </div>
+      </PublicLayout>
+    );
   }
 
   if (!data || !product) return <PublicLayout><div className="p-16 text-center text-muted-foreground">Loading...</div></PublicLayout>;
