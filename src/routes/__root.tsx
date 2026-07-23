@@ -16,6 +16,7 @@ import { ThemeProvider } from "@/lib/theme";
 import { Toaster } from "@/components/ui/sonner";
 import { Assistant } from "@/components/site/Assistant";
 import { WhatsAppButton } from "@/components/site/WhatsAppButton";
+import { Analytics } from "@vercel/analytics/react";
 
 function NotFoundComponent() {
   return (
@@ -128,6 +129,7 @@ function RootComponent() {
           <Assistant />
           <WhatsAppButton />
           <Toaster richColors position="top-right" />
+          <Analytics />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
