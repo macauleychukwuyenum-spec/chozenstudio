@@ -4,9 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { PublicLayout } from "@/components/site/PublicLayout";
 import { ZoomableSignedImage } from "@/components/site/ZoomableSignedImage";
-import { resolveStorageUrl } from "@/components/site/FileUpload";
 import { useAuth } from "@/lib/auth-context";
-import { initializeProductCheckout, purchaseProductWithWallet } from "@/lib/paystack.functions";
+import { ensureProductAccess, initializeProductCheckout, purchaseProductWithWallet } from "@/lib/paystack.functions";
 import { formatNGN } from "@/lib/format";
 import { calculateDiscountedPrice, tierDiscountApplies } from "@/lib/product-pricing";
 import { Button } from "@/components/ui/button";
@@ -28,6 +27,7 @@ function ProductDetail() {
   const uid = user?.id;
   const checkout = useServerFn(initializeProductCheckout);
   const walletPurchase = useServerFn(purchaseProductWithWallet);
+  const ensureAccess = useServerFn(ensureProductAccess);
   const qc = useQueryClient();
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
@@ -55,11 +55,10 @@ function ProductDetail() {
       let discountPercentage = 0;
       let activeTierName: string | null = null;
       let walletBalance = 0;
+      let secureFileUrl: string | null = null;
 
       if (uid) {
-        const [{ data: roles }, { data: ownedRow }, { data: activeCycle }, { data: wallet }] = await Promise.all([
-          supabase.from("user_roles").select("role").eq("user_id", uid),
-          supabase.from("product_purchases" as any).select("id").eq("user_id", uid).eq("product_id", product.id).maybeSingle(),
+        const [{ data: activeCycle }, { data: wallet }, access] = await Promise.all([
           supabase
             .from("tier_purchases")
             .select("tier_id, tiers(name,service_discount_percentage)")
@@ -69,10 +68,12 @@ function ProductDetail() {
             .limit(1)
             .maybeSingle(),
           supabase.from("wallets").select("balance_ngn").eq("user_id", uid).maybeSingle(),
+          ensureAccess({ data: { productId: product.id } }),
         ]);
 
-        owned = Boolean(ownedRow);
-        isAdmin = Boolean(roles?.some((role: any) => role.role === "admin"));
+        owned = Boolean(access.owned);
+        isAdmin = Boolean(access.isAdmin);
+        secureFileUrl = access.fileUrl ?? null;
         const selectedTierIds = ((allowedRows as any[]) ?? []).map((row) => row.tier_id);
         const discountEligible = tierDiscountApplies({
           selectedTierIds,
@@ -97,6 +98,7 @@ function ProductDetail() {
         discountPercentage,
         activeTierName,
         walletBalance,
+        secureFileUrl,
       };
     },
   });
@@ -108,24 +110,9 @@ function ProductDetail() {
   const fileIsPdf = ext === "pdf";
 
   useEffect(() => {
-    if (!hasAccess || !product?.file_url) {
-      setFileUrl(null);
-      setFileLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setFileLoading(true);
-    resolveStorageUrl("product-files", product.file_url)
-      .then((url) => {
-        if (!cancelled) setFileUrl(url);
-      })
-      .finally(() => {
-        if (!cancelled) setFileLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hasAccess, product?.file_url]);
+    setFileUrl(hasAccess ? (data?.secureFileUrl ?? null) : null);
+    setFileLoading(false);
+  }, [data?.secureFileUrl, hasAccess]);
 
   async function buyProduct() {
     if (!product) return;
