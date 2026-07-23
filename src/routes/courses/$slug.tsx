@@ -1,14 +1,17 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { PublicLayout } from "@/components/site/PublicLayout";
 import { SignedImage } from "@/components/site/SignedImage";
 import { resolveStorageUrl } from "@/components/site/FileUpload";
 import { useAuth } from "@/lib/auth-context";
+import { initializeCourseCheckout, purchaseCourseWithWallet } from "@/lib/paystack.functions";
 import { formatNGN } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Clock, Download, Lock, PlayCircle } from "lucide-react";
+import { ArrowLeft, Clock, CreditCard, Download, Lock, PlayCircle, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/courses/$slug")({
   head: ({ params }) => ({
@@ -22,8 +25,12 @@ function CourseDetail() {
   const { slug } = Route.useParams();
   const { user } = useAuth();
   const uid = user?.id;
+  const checkout = useServerFn(initializeCourseCheckout);
+  const walletPurchase = useServerFn(purchaseCourseWithWallet);
+  const qc = useQueryClient();
   const [resourceUrl, setResourceUrl] = useState<string | null>(null);
   const [resourceLoading, setResourceLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["course", slug, uid],
@@ -45,21 +52,28 @@ function CourseDetail() {
         .order("order_index");
 
       let hasAccess = false;
+      let isAdmin = false;
+      let owned = false;
+      let walletBalance = 0;
       if (uid) {
-        const [{ data: roles }, { data: purchases }] = await Promise.all([
+        const [{ data: roles }, { data: coursePurchase }, { data: purchases }, { data: wallet }] = await Promise.all([
           supabase.from("user_roles").select("role").eq("user_id", uid),
+          supabase.from("course_purchases" as any).select("id").eq("user_id", uid).eq("course_id", course.id).maybeSingle(),
           supabase
             .from("tier_purchases")
             .select("tier_id, tiers(course_access_level)")
             .eq("user_id", uid)
             .eq("cycle_status", "active"),
+          supabase.from("wallets").select("balance_ngn").eq("user_id", uid).maybeSingle(),
         ]);
-        const isAdmin = Boolean(roles?.some((role: any) => role.role === "admin"));
+        isAdmin = Boolean(roles?.some((role: any) => role.role === "admin"));
+        owned = Boolean(coursePurchase);
         const maxLevel = Math.max(0, ...(((purchases as any[]) ?? []).map((purchase) => Number(purchase.tiers?.course_access_level ?? 0))));
-        hasAccess = isAdmin || maxLevel >= Number(course.required_access_level);
+        hasAccess = isAdmin || owned || maxLevel >= Number(course.required_access_level);
+        walletBalance = Number(wallet?.balance_ngn ?? 0);
       }
 
-      return { course, lessons: lessons ?? [], hasAccess };
+      return { course, lessons: lessons ?? [], hasAccess, isAdmin, owned, walletBalance };
     },
   });
 
@@ -88,11 +102,51 @@ function CourseDetail() {
     };
   }, [data?.hasAccess, courseResource]);
 
+  async function buyCourse() {
+    if (!course) return;
+    if (!uid) {
+      toast.error("Please sign in to buy this course.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await checkout({ data: { courseId: course.id } });
+      window.location.href = result.authorization_url;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not start checkout");
+      qc.invalidateQueries({ queryKey: ["course", slug, uid] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function buyCourseWithWallet() {
+    if (!course) return;
+    if (!uid) {
+      toast.error("Please sign in to buy this course.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await walletPurchase({ data: { courseId: course.id } });
+      toast.success(result.message ?? "Course unlocked");
+      qc.invalidateQueries({ queryKey: ["course", slug, uid] });
+      if (result.redirectTo) window.location.href = result.redirectTo;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not pay with wallet");
+      qc.invalidateQueries({ queryKey: ["course", slug, uid] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!data || !course) {
     return <PublicLayout><div className="p-16 text-center text-muted-foreground">Loading...</div></PublicLayout>;
   }
 
   const { lessons, hasAccess } = data;
+  const coursePrice = Number(course.price_ngn ?? 0);
+  const walletCanPay = Number(data.walletBalance ?? 0) >= coursePrice;
 
   return (
     <PublicLayout>
@@ -127,7 +181,7 @@ function CourseDetail() {
               <div>
                 <h2 className="font-display font-semibold">Course document</h2>
                 <p className="text-sm text-muted-foreground">
-                  {hasAccess ? "Your tier unlocks this course resource." : `Requires active course access level ${course.required_access_level}.`}
+                  {hasAccess ? "Your access unlocks this course resource." : `Requires purchase or active course access level ${course.required_access_level}.`}
                 </p>
               </div>
             </div>
@@ -147,12 +201,65 @@ function CourseDetail() {
                 <div className="text-sm text-muted-foreground">{resourceLoading ? "Preparing secure file..." : "Secure file unavailable."}</div>
               )
             ) : (
-              <Button asChild variant="outline">
-                <Link to={uid ? "/dashboard/tiers" : "/auth"} search={uid ? undefined : ({ mode: "signin" } as any)}>
-                  {uid ? "Upgrade tier" : "Sign in"}
-                </Link>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {uid ? (
+                  <>
+                    {coursePrice > 0 && (
+                      <>
+                        <Button onClick={buyCourse} disabled={busy} className="gradient-primary text-primary-foreground">
+                          <CreditCard className="w-4 h-4 mr-1" /> {busy ? "Starting..." : `Pay ${formatNGN(coursePrice)}`}
+                        </Button>
+                        <Button onClick={buyCourseWithWallet} disabled={busy || !walletCanPay} variant="outline">
+                          <Wallet className="w-4 h-4 mr-1" /> Pay with wallet
+                        </Button>
+                      </>
+                    )}
+                    <Button asChild variant="outline">
+                      <Link to="/dashboard/tiers">Use tier</Link>
+                    </Button>
+                  </>
+                ) : (
+                  <Button asChild className="gradient-primary text-primary-foreground">
+                    <Link to="/auth" search={{ mode: "signin" }}>Sign in to buy</Link>
+                  </Button>
+                )}
+              </div>
             )}
+          </div>
+        )}
+
+        {!hasAccess && !courseResource && (
+          <div className="glass-strong rounded-2xl p-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="font-display font-semibold">Course locked</h2>
+              <p className="text-sm text-muted-foreground">
+                Buy this course{coursePrice ? ` for ${formatNGN(coursePrice)}` : ""} or use an eligible Chozen tier.
+                {uid ? ` Wallet balance: ${formatNGN(data.walletBalance ?? 0)}.` : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {uid ? (
+                <>
+                  {coursePrice > 0 && (
+                    <>
+                      <Button onClick={buyCourse} disabled={busy} className="gradient-primary text-primary-foreground">
+                        <CreditCard className="w-4 h-4 mr-1" /> {busy ? "Starting..." : "Pay with Paystack"}
+                      </Button>
+                      <Button onClick={buyCourseWithWallet} disabled={busy || !walletCanPay} variant="outline">
+                        <Wallet className="w-4 h-4 mr-1" /> Pay with wallet
+                      </Button>
+                    </>
+                  )}
+                  <Button asChild variant="outline">
+                    <Link to="/dashboard/tiers">Use tier</Link>
+                  </Button>
+                </>
+              ) : (
+                <Button asChild className="gradient-primary text-primary-foreground">
+                  <Link to="/auth" search={{ mode: "signin" }}>Sign in to buy</Link>
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
