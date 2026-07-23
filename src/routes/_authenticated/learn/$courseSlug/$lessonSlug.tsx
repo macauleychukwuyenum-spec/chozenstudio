@@ -28,17 +28,25 @@ function LessonPlayer() {
       const { data: course } = await supabase.from("courses").select("*").eq("slug", courseSlug).maybeSingle();
       if (!course) throw notFound();
 
-      // access check: admin OR active tier_purchase with course access >= required
+      // access check: admin, direct course purchase, or active tier access.
       const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", uid!);
       const isAdmin = roles?.some((r: any) => r.role === "admin");
 
-      const { data: purchases } = await supabase
-        .from("tier_purchases")
-        .select("tier_id, cycle_status, tiers(course_access_level)")
-        .eq("user_id", uid!)
-        .eq("cycle_status", "active");
+      const [{ data: purchases }, { data: coursePurchase }] = await Promise.all([
+        supabase
+          .from("tier_purchases")
+          .select("tier_id, cycle_status, tiers(course_access_level)")
+          .eq("user_id", uid!)
+          .eq("cycle_status", "active"),
+        supabase
+          .from("course_purchases" as any)
+          .select("id")
+          .eq("user_id", uid!)
+          .eq("course_id", course.id)
+          .maybeSingle(),
+      ]);
       const maxLevel = Math.max(0, ...(purchases ?? []).map((p: any) => p.tiers?.course_access_level ?? 0));
-      const hasAccess = isAdmin || maxLevel >= course.required_access_level;
+      const hasAccess = isAdmin || Boolean(coursePurchase) || maxLevel >= course.required_access_level;
 
       const { data: lessons } = await supabase.from("course_lessons" as any).select("*").eq("course_id", course.id).eq("published", true).order("order_index");
       const list = (lessons as any[]) ?? [];
@@ -70,7 +78,7 @@ function LessonPlayer() {
         <div className="glass-strong rounded-2xl p-10">
           <Lock className="w-10 h-10 mx-auto text-muted-foreground mb-4" />
           <h1 className="text-2xl font-display font-bold">Locked</h1>
-          <p className="text-muted-foreground mt-2">You need an active tier with access level {course.required_access_level} or higher to view this course.</p>
+          <p className="text-muted-foreground mt-2">Buy this course or use an active tier with access level {course.required_access_level} or higher to view it.</p>
           <Link to="/dashboard/tiers"><Button className="mt-6 gradient-primary text-primary-foreground">Upgrade tier</Button></Link>
         </div>
       </div>
