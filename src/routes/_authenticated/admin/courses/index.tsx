@@ -218,7 +218,7 @@ export function ContentAdmin({ table, title }: { table: "courses" | "digital_pro
             </div>
             {table === "digital_products" && (
               <div className="space-y-2">
-                <Label>Allowed tiers</Label>
+                <Label>Discount tiers</Label>
                 <div className="grid grid-cols-2 gap-2">
                   {(tiers ?? []).map((tier: any) => (
                     <label key={tier.id} className="glass rounded-lg px-3 py-2 text-sm flex items-center gap-2">
