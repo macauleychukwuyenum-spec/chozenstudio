@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,8 +20,14 @@ export const Route = createFileRoute("/products")({
       { name: "description", content: "Downloadable digital products, templates, packs, and toolkits." },
     ],
   }),
-  component: ProductsList,
+  component: ProductsRoute,
 });
+
+function ProductsRoute() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  if (pathname !== "/products" && pathname !== "/products/") return <Outlet />;
+  return <ProductsList />;
+}
 
 function ProductsList() {
   const { user } = useAuth();
