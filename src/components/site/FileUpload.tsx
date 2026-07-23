@@ -17,13 +17,44 @@ type Props = {
   preview?: boolean;
 };
 
+const PUBLIC_BUCKETS = new Set(["avatars", "blog-images"]);
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24;
+const CACHE_TTL_MS = 55 * 60 * 1000;
+const storageUrlCache = new Map<string, { url: string | null; expiresAt: number; promise?: Promise<string | null> }>();
+
 /** Returns a browser-usable URL for a bucket-relative path (signed for private buckets). */
 export async function resolveStorageUrl(bucket: string, path: string | null | undefined): Promise<string | null> {
   if (!path) return null;
   if (path.startsWith("http")) return path;
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60);
-  if (error) return null;
-  return data.signedUrl;
+
+  const key = `${bucket}:${path}`;
+  const cached = storageUrlCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.promise) return cached.promise;
+    return cached.url;
+  }
+
+  if (PUBLIC_BUCKETS.has(bucket)) {
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+    storageUrlCache.set(key, { url: data.publicUrl, expiresAt: Date.now() + CACHE_TTL_MS });
+    return data.publicUrl;
+  }
+
+  const promise = supabase.storage
+    .from(bucket)
+    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
+    .then(({ data, error }) => {
+      const url = error ? null : data.signedUrl;
+      storageUrlCache.set(key, { url, expiresAt: Date.now() + CACHE_TTL_MS });
+      return url;
+    })
+    .catch(() => {
+      storageUrlCache.delete(key);
+      return null;
+    });
+
+  storageUrlCache.set(key, { url: null, expiresAt: Date.now() + CACHE_TTL_MS, promise });
+  return promise;
 }
 
 export function FileUpload({ bucket, folder, value, onChange, accept = "image/*", maxMB = 10, label = "Upload file", preview = true }: Props) {
@@ -77,7 +108,7 @@ export function FileUpload({ bucket, folder, value, onChange, accept = "image/*"
         {value && <span className="text-xs text-muted-foreground truncate max-w-[240px]">{value}</span>}
       </div>
       {preview && previewUrl && accept?.includes("image") && (
-        <img src={previewUrl} alt="Preview" className="rounded-lg max-h-40 border border-border" />
+        <img src={previewUrl} alt="Preview" className="rounded-lg max-h-40 border border-border" loading="lazy" decoding="async" />
       )}
       <input ref={inputRef} type="file" accept={accept} onChange={onFile} className="hidden" />
     </div>
